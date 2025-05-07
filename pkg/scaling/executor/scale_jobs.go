@@ -279,7 +279,7 @@ func (e *scaleExecutor) areAllPendingPodConditionsFulfilled(ctx context.Context,
 		}
 	}
 
-	return len(pendingPodConditions) == fulfilledConditionsCount
+	return len(pendingPodConditions)*len(pods.Items) == fulfilledConditionsCount
 }
 
 func (e *scaleExecutor) getPendingJobCount(ctx context.Context, scaledJob *kedav1alpha1.ScaledJob) int64 {

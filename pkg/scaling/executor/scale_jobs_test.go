@@ -289,30 +289,41 @@ func TestGetPendingJobCount(t *testing.T) {
 	defer ctrl.Finish()
 
 	pendingPodConditions := []string{"Ready", "PodScheduled"}
+	pendingInitializedPodConditions := []string{"PodScheduled", "Initialized"}
 	readyCondition := getPodCondition(v1.PodReady)
+	containersReadyCondition := getPodCondition(v1.ContainersReady)
 	podScheduledCondition := getPodCondition(v1.PodScheduled)
+	initializedCondition := getPodCondition(v1.PodInitialized)
 
 	testPendingJobTestData := []pendingJobTestData{
-		{PodStatus: v1.PodStatus{Phase: v1.PodSucceeded}, PendingJobCount: 0},
-		{PodStatus: v1.PodStatus{Phase: v1.PodRunning}, PendingJobCount: 0},
-		{PodStatus: v1.PodStatus{Phase: v1.PodFailed}, PendingJobCount: 1},
-		{PodStatus: v1.PodStatus{Phase: v1.PodPending}, PendingJobCount: 1},
-		{PodStatus: v1.PodStatus{Phase: v1.PodUnknown}, PendingJobCount: 1},
-		{PendingPodConditions: pendingPodConditions, PodStatus: v1.PodStatus{Conditions: []v1.PodCondition{}}, PendingJobCount: 1},
-		{PendingPodConditions: pendingPodConditions, PodStatus: v1.PodStatus{Conditions: []v1.PodCondition{readyCondition}}, PendingJobCount: 1},
-		{PendingPodConditions: pendingPodConditions, PodStatus: v1.PodStatus{Conditions: []v1.PodCondition{podScheduledCondition}}, PendingJobCount: 1},
-		{PendingPodConditions: pendingPodConditions, PodStatus: v1.PodStatus{Conditions: []v1.PodCondition{readyCondition, podScheduledCondition}}, PendingJobCount: 0},
+		{Name: "No conditions, single succeeded pod", PodStatuses: []v1.PodStatus{{Phase: v1.PodSucceeded}}, PendingJobCount: 0},
+		{Name: "No conditions, single running pod", PodStatuses: []v1.PodStatus{{Phase: v1.PodRunning}}, PendingJobCount: 0},
+		{Name: "No conditions, single failed pod", PodStatuses: []v1.PodStatus{{Phase: v1.PodFailed}}, PendingJobCount: 1},
+		{Name: "No conditions, single pending pod", PodStatuses: []v1.PodStatus{{Phase: v1.PodPending}}, PendingJobCount: 1},
+		{Name: "No conditions, single unknown pod", PodStatuses: []v1.PodStatus{{Phase: v1.PodUnknown}}, PendingJobCount: 1},
+		{Name: "No conditions, two pods, one pending, one running", PodStatuses: []v1.PodStatus{{Phase: v1.PodPending}, {Phase: v1.PodRunning}}, PendingJobCount: 0},
+		{Name: "Conditions, single pod without status", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{}}}, PendingJobCount: 1},
+		{Name: "Conditions, single ready & unscheduled pod", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{readyCondition}}}, PendingJobCount: 1},
+		{Name: "Conditions, single scheduled pod", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{podScheduledCondition}}}, PendingJobCount: 1},
+		{Name: "Conditions, single ready & scheduled pod ", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{readyCondition, podScheduledCondition}}}, PendingJobCount: 0},
+		{Name: "Conditions, two pods, both scheduled", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{podScheduledCondition}}, {Conditions: []v1.PodCondition{podScheduledCondition}}}, PendingJobCount: 1},
+		{Name: "Conditions, two pods, one scheduled, other ready & scheduled", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{podScheduledCondition}}, {Conditions: []v1.PodCondition{readyCondition, podScheduledCondition}}}, PendingJobCount: 1},
+		{Name: "Conditions, two pods, one running, other ready & scheduled", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Phase: v1.PodRunning, Conditions: []v1.PodCondition{readyCondition, podScheduledCondition, containersReadyCondition}}, {Conditions: []v1.PodCondition{readyCondition, podScheduledCondition}}}, PendingJobCount: 0},
+		{Name: "Conditions, two pods, both ready & scheduled", PendingPodConditions: pendingPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{readyCondition, podScheduledCondition}}, {Conditions: []v1.PodCondition{readyCondition, podScheduledCondition}}}, PendingJobCount: 0},
+		{Name: "Conditions, single initialized & scheduled pod", PendingPodConditions: pendingInitializedPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{initializedCondition, podScheduledCondition}}}, PendingJobCount: 0},
+		{Name: "Conditions, three pods, all initialized & scheduled", PendingPodConditions: pendingInitializedPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{initializedCondition, podScheduledCondition}}, {Conditions: []v1.PodCondition{initializedCondition, podScheduledCondition}}, {Conditions: []v1.PodCondition{initializedCondition, podScheduledCondition}}}, PendingJobCount: 0},
+		{Name: "Conditions, three pods, two initialized & scheduled, one scheduled", PendingPodConditions: pendingInitializedPodConditions, PodStatuses: []v1.PodStatus{{Conditions: []v1.PodCondition{initializedCondition, podScheduledCondition}}, {Conditions: []v1.PodCondition{initializedCondition, podScheduledCondition}}, {Conditions: []v1.PodCondition{podScheduledCondition}}}, PendingJobCount: 1},
 	}
 
 	for _, testData := range testPendingJobTestData {
 		ctx := context.Background()
-		client := getMockClientForTestingPendingPods(t, ctrl, testData.PodStatus)
+		client := getMockClientForTestingPendingPods(t, ctrl, testData.PodStatuses)
 		scaleExecutor := getMockScaleExecutor(client)
 
 		scaledJob := getMockScaledJobWithPendingPodConditions(testData.PendingPodConditions)
 		result := scaleExecutor.getPendingJobCount(ctx, scaledJob)
 
-		assert.Equal(t, testData.PendingJobCount, result)
+		assert.Equal(t, testData.PendingJobCount, result, testData.Name)
 	}
 }
 
@@ -381,8 +392,9 @@ type mockJobParameter struct {
 }
 
 type pendingJobTestData struct {
+	Name                 string
 	PendingPodConditions []string
-	PodStatus            v1.PodStatus
+	PodStatuses          []v1.PodStatus
 	PendingJobCount      int64
 }
 
@@ -516,7 +528,7 @@ func getMockClient(t *testing.T, ctrl *gomock.Controller, jobs *[]mockJobParamet
 	return client
 }
 
-func getMockClientForTestingPendingPods(t *testing.T, ctrl *gomock.Controller, podStatus v1.PodStatus) *mock_client.MockClient {
+func getMockClientForTestingPendingPods(t *testing.T, ctrl *gomock.Controller, podStatuses []v1.PodStatus) *mock_client.MockClient {
 	client := mock_client.NewMockClient(ctrl)
 	gomock.InOrder(
 		// listing jobs
@@ -543,7 +555,9 @@ func getMockClientForTestingPendingPods(t *testing.T, ctrl *gomock.Controller, p
 			}
 
 			if ok {
-				p.Items = append(p.Items, v1.Pod{Status: podStatus})
+				for _, podStatus := range podStatuses {
+					p.Items = append(p.Items, v1.Pod{Status: podStatus})
+				}
 			}
 		}).
 			Return(nil),
